@@ -211,8 +211,8 @@ void sort_impl(T* a, index_t lo, index_t hi, int depth) {
 template<typename T>
 void sort(T* a, index_t n) {
     static_assert(std::is_arithmetic<T>::value,
-                  "MeanSort 只支持算术类型(int/long long/float/double 等);"
-                  "自定义类型或 std::string 请用 std::sort / pdqsort");
+                  "MeanSort supports arithmetic types only "
+                  "(int/long long/float/double); use std::sort/pdqsort otherwise");
     if (n <= 1) return;
     int depth = 2 * static_cast<int>(
         std::log2(static_cast<double>(std::max<index_t>(n, 2))));
@@ -259,8 +259,8 @@ void collect_ranges(T* a, index_t lo, index_t hi, int depth, int parts,
 template<typename T>
 void parallel_sort(T* a, index_t n, unsigned max_threads = 0) {
     static_assert(std::is_arithmetic<T>::value,
-                  "MeanSort 只支持算术类型(int/long long/float/double 等);"
-                  "自定义类型或 std::string 请用 std::sort / pdqsort");
+                  "MeanSort supports arithmetic types only "
+                  "(int/long long/float/double); use std::sort/pdqsort otherwise");
     if (n <= 1) return;
     unsigned hw = std::thread::hardware_concurrency();
     if (hw <= 1 || n <= detail::kParallelThreshold) { sort(a, n); return; }
