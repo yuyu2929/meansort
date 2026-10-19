@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <iostream>
 #include <random>
 #include <vector>
