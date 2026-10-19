@@ -1,0 +1,29 @@
+# 构建产物
+build/
+cmake-build-*/
+stage/
+out/
+
+# 编译中间文件
+*.o
+*.obj
+*.pdb
+*.ilk
+*.exe
+*.out
+*.dll
+*.lib
+*.a
+*.so
+*.dylib
+
+# IDE / 编辑器
+.vscode/
+.idea/
+.clangd/
+compile_commands.json
+CMakeUserPresets.json
+
+# 系统杂项
+.DS_Store
+Thumbs.db

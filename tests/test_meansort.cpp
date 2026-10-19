@@ -101,11 +101,49 @@ void test_double() {
     else std::cout << "[ OK ] double 重尾分布\n";
 }
 
+// NaN 全序验证:有限值必须升序且全部排在 NaN 之前,NaN 数量不变。
+// 注意不能拿 std::sort 当对照——std::sort 遇到 NaN 会破坏严格弱序,行为未定义。
+void test_nan() {
+    std::mt19937_64 rng(2024);
+    std::vector<double> v;
+    v.reserve(20000);
+    for (int i = 0; i < 20000; ++i) {
+        if (i % 37 == 0) v.push_back(std::nan(""));
+        else v.push_back((double)(rng() % 1000) - 500.0);
+    }
+
+    std::vector<double> a = v, b = v;
+    meansort::sort(a);
+    meansort::parallel_sort(b);
+
+    size_t nan_in = 0;
+    for (double x : v) if (std::isnan(x)) ++nan_in;
+
+    auto verify = [&](const std::vector<double>& s, const char* tag) {
+        bool ok = (s.size() == v.size());
+        bool first = true, seen_nan = false;
+        double prev = 0.0;
+        size_t nan_out = 0;
+        for (double x : s) {
+            if (std::isnan(x)) { seen_nan = true; ++nan_out; continue; }
+            if (seen_nan) { ok = false; break; }        // NaN 之后还有有限值 => 失败
+            if (!first && x < prev) { ok = false; break; }
+            prev = x; first = false;
+        }
+        if (nan_out != nan_in) ok = false;
+        if (!ok) { std::cerr << "[FAIL] NaN " << tag << "\n"; ++failures; }
+        else std::cout << "[ OK ] NaN " << tag << "\n";
+    };
+    verify(a, "串行");
+    verify(b, "并行");
+}
+
 int main() {
     run_suite("串行", [](std::vector<long long>& v) { meansort::sort(v); });
     run_suite("并行", [](std::vector<long long>& v) { meansort::parallel_sort(v); });
     partition_fuzz();
     test_double();
+    test_nan();
     if (failures) { std::cerr << failures << " 项失败\n"; return 1; }
     std::cout << "\n全部通过\n";
     return 0;

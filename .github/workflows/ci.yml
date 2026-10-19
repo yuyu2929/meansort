@@ -6,24 +6,47 @@ on:
   pull_request:
 
 jobs:
-  test:
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-        compiler: [g++, clang++]
-        exclude:
-          - os: macos-latest
-            compiler: g++
+  build-test:
+    name: ${{ matrix.os }} / ${{ matrix.compiler }}
     runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest,  compiler: g++,     cc: gcc,   cxx: g++ }
+          - { os: ubuntu-latest,  compiler: clang++, cc: clang, cxx: clang++ }
+          - { os: macos-latest,   compiler: clang++, cc: clang, cxx: clang++ }
+          - { os: windows-latest, compiler: msvc,    cc: "",    cxx: "" }
     steps:
       - uses: actions/checkout@v4
+
+      - name: 配置
+        run: >
+          cmake -B build
+          -DMEANSORT_BUILD_TESTS=ON
+          -DMEANSORT_BUILD_BENCH=ON
+          -DCMAKE_BUILD_TYPE=Release
+        env:
+          CC: ${{ matrix.cc }}
+          CXX: ${{ matrix.cxx }}
+
       - name: 编译
-        run: |
-          ${{ matrix.compiler }} -O2 -std=c++17 -pthread \
-            tests/test_meansort.cpp -o test_meansort
-          ${{ matrix.compiler }} -O3 -std=c++17 -pthread \
-            benchmark/bench.cpp -o bench
+        run: cmake --build build --config Release --parallel
+
       - name: 测试
-        run: ./test_meansort
-      - name: 基准冒烟(小规模)
-        run: ./bench 100000
+        run: ctest --test-dir build -C Release --output-on-failure
+
+      - name: 安装冒烟(确认装得出可被 find_package 使用的配置)
+        shell: bash
+        run: |
+          cmake --install build --prefix stage --config Release
+          cmake -E cat stage/lib/cmake/meansort/meansortConfig.cmake > /dev/null
+          cmake -E cat stage/lib/cmake/meansort/meansortConfigVersion.cmake > /dev/null
+
+      - name: 基准冒烟(小规模,Unix)
+        if: runner.os != 'Windows'
+        run: ./build/meansort_bench 100000
+
+      - name: 基准冒烟(小规模,Windows)
+        if: runner.os == 'Windows'
+        run: ./build/Release/meansort_bench.exe 100000

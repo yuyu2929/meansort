@@ -24,6 +24,7 @@
 #include <cmath>
 #include <cstdint>
 #include <thread>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -36,9 +37,32 @@ inline constexpr index_t kSampleCount        = 16;
 inline constexpr index_t kTrimLo             = 4;   // 去掉采样最小 4 个
 inline constexpr index_t kTrimHi             = 12;  // 去掉采样最大 4 个,取中间 8 个
 
+// ---------- 比较原语:对 NaN 也成立的全序 ----------
+// 统一走 less<T>,不直接用 <。原因:IEEE-754 的 NaN 与任何值比较都为 false,
+// 直接用它做三路划分会让 "a < pivot" 与 "pivot < a" 同时为假,NaN 被当成
+// "等于枢轴" 塞进等值区,得到错误结果(std::sort 对 NaN 同样是未定义行为)。
+// 这里定义全序:有限值 < NaN,所有 NaN 彼此相等 => NaN 统一沉到末尾。
+template<typename T>
+inline constexpr bool is_float_v = std::is_floating_point<T>::value;
+
+template<typename T>
+inline bool is_nan(T v) {
+    if constexpr (is_float_v<T>) return v != v;
+    else return false;
+}
+
+template<typename T>
+inline bool less(T a, T b) {
+    if constexpr (is_float_v<T>) {
+        const bool na = (a != a), nb = (b != b);
+        if (na || nb) return !na && nb;   // 非 NaN 一律排在 NaN 之前
+    }
+    return a < b;
+}
+
 // ---------- 小数组:排序网络 + 插入排序(保留原设计) ----------
 template<typename T>
-inline void sort2(T& a, T& b) { if (b < a) std::swap(a, b); }
+inline void sort2(T& a, T& b) { if (less(b, a)) std::swap(a, b); }
 
 template<typename T>
 inline void sort3(T& a, T& b, T& c) { sort2(a, b); sort2(b, c); sort2(a, b); }
@@ -65,7 +89,7 @@ inline void insertion_sort(T* a, index_t n) {
     for (index_t i = 1; i < n; ++i) {
         T key = a[i];
         index_t j = i - 1;
-        while (j >= 0 && a[j] > key) { a[j + 1] = a[j]; --j; }
+        while (j >= 0 && less(key, a[j])) { a[j + 1] = a[j]; --j; }
         a[j + 1] = key;
     }
 }
@@ -92,10 +116,10 @@ three_way_partition(T* a, index_t lo, index_t hi, T pivot) {
     index_t gt = hi;   // [gt, hi)  > pivot
 
     while (i < gt) {
-        if (a[i] < pivot) {
+        if (less(a[i], pivot)) {
             if (lt != i) std::swap(a[lt], a[i]);  // 跳过自交换(随机数据常见)
             ++lt; ++i;
-        } else if (pivot < a[i]) {
+        } else if (less(pivot, a[i])) {
             --gt;
             std::swap(a[i], a[gt]);
         } else {
@@ -137,10 +161,17 @@ inline T sample_pivot(T* a, index_t lo, index_t hi) {
         s[i] = a[lo + phase + i * step];
     small_sort(s, kSampleCount);
 
+    // NaN 不参与求均值,否则整个枢轴会变成 NaN;若中间 8 个全是 NaN,
+    // 直接返回 NaN,由 less<T> 的全序保证 NaN 仍被统一沉到末尾。
     long double sum = 0;
-    for (index_t i = kTrimLo; i < kTrimHi; ++i)
+    index_t cnt = 0;
+    for (index_t i = kTrimLo; i < kTrimHi; ++i) {
+        if (is_nan(s[i])) continue;
         sum += static_cast<long double>(s[i]);
-    return static_cast<T>(sum / static_cast<long double>(kTrimHi - kTrimLo));
+        ++cnt;
+    }
+    if (cnt == 0) return s[kTrimLo];
+    return static_cast<T>(sum / static_cast<long double>(cnt));
 }
 
 // ---------- 递归主体:小侧递归、大侧循环 ----------
@@ -150,10 +181,10 @@ void sort_impl(T* a, index_t lo, index_t hi, int depth) {
         // 已有序/逆序检测:随机数据各约 1~2 次比较即退出,几乎零开销;
         // 有序直接返回,逆序原地翻转后返回
         index_t i = lo;
-        while (++i < hi) { if (a[i - 1] > a[i]) break; }
+        while (++i < hi) { if (less(a[i], a[i - 1])) break; }
         if (i == hi) return;
         index_t j = lo;
-        while (++j < hi) { if (a[j - 1] < a[j]) break; }
+        while (++j < hi) { if (less(a[j - 1], a[j])) break; }
         if (j == hi) { std::reverse(a + lo, a + hi); return; }
 
         if (--depth < 0) {
@@ -179,6 +210,9 @@ void sort_impl(T* a, index_t lo, index_t hi, int depth) {
 // ---------- 单线程对外接口 ----------
 template<typename T>
 void sort(T* a, index_t n) {
+    static_assert(std::is_arithmetic<T>::value,
+                  "MeanSort 只支持算术类型(int/long long/float/double 等);"
+                  "自定义类型或 std::string 请用 std::sort / pdqsort");
     if (n <= 1) return;
     int depth = 2 * static_cast<int>(
         std::log2(static_cast<double>(std::max<index_t>(n, 2))));
@@ -224,6 +258,9 @@ void collect_ranges(T* a, index_t lo, index_t hi, int depth, int parts,
 // max_threads = 0 表示自动取 hardware_concurrency。
 template<typename T>
 void parallel_sort(T* a, index_t n, unsigned max_threads = 0) {
+    static_assert(std::is_arithmetic<T>::value,
+                  "MeanSort 只支持算术类型(int/long long/float/double 等);"
+                  "自定义类型或 std::string 请用 std::sort / pdqsort");
     if (n <= 1) return;
     unsigned hw = std::thread::hardware_concurrency();
     if (hw <= 1 || n <= detail::kParallelThreshold) { sort(a, n); return; }
