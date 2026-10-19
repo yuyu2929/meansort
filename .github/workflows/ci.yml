@@ -43,10 +43,10 @@ jobs:
           cmake -E cat stage/lib/cmake/meansort/meansortConfig.cmake > /dev/null
           cmake -E cat stage/lib/cmake/meansort/meansortConfigVersion.cmake > /dev/null
 
-      - name: 基准冒烟(小规模,Unix)
+      - name: 基准(2M,Unix)
         if: runner.os != 'Windows'
-        run: ./build/meansort_bench 100000
+        run: ./build/meansort_bench 2000000
 
-      - name: 基准冒烟(小规模,Windows)
+      - name: 基准(2M,Windows)
         if: runner.os == 'Windows'
-        run: ./build/Release/meansort_bench.exe 100000
+        run: ./build/Release/meansort_bench.exe 2000000

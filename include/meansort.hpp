@@ -1,19 +1,24 @@
 #ifndef MEANSORT_HPP
 #define MEANSORT_HPP
 // ============================================================================
-// MeanSort 2.0 —— 统计枢轴三路划分内省排序(企业级增强版)
+// MeanSort 2.1 —— 统计枢轴自适应划分内省排序(企业级增强版)
 //
 // 设计思想源自原始 MeanSort:均值枢轴 + 三路划分 + 深度限制切堆排。
-// 在完全保留该思路的前提下做如下强化:
+// 相对 2.0 的改动:
 //
-//   1. 截尾均值枢轴:16 个等距采样先排序,去掉最小/最大各 4 个,
-//      对中间 8 个求均值 => 枢轴必落在采样第 5~12 序列之间,
-//      单层拆分规模有约 5/16 ~ 11/16 的保证,重尾/离群点不再导致退化。
-//   2. 采样起点随机化:抵御针对确定性枢轴的构造性最坏输入。
-//   3. 递归较小侧、循环较大侧:栈深稳定在 O(log n)。
-//   4. 插入排序阈值 16 -> 24;小数组排序网络保留原设计。
-//   5. 索引改为 ptrdiff_t:支持超过 2^31 的大型数组。
-//   6. 新增 parallel_sort:多线程并行,大数据量下接近线性加速。
+//   1. [正确性] NaN 全序:所有比较走 less<T>(),有限值 < NaN、NaN 彼此相等,
+//      NaN 不再被三路划分误判成"等于枢轴"而进入等值区。sample_pivot 也跳过
+//      NaN 样本,枢轴不会整段变成 NaN。
+//   2. [性能] 自适应划分:采样时顺带统计等值对的密度——
+//        * 低重复度(随机/连续分布)走两路 Hoare 划分,每个元素平均 1 次比较;
+//        * 高重复度(大量等值)才走三路划分,等值区整层排除。
+//      2.0 对任何数据都用三路,相当于每个元素最坏 2 次比较,这是单线程
+//      均匀随机数据比 std::sort 慢约 45% 的主因。
+//   3. [性能] 并行改为主线程 + 工作线程共享原子游标抢块,线程数严格等于
+//      max_threads,不再出现 2×max_threads 个线程争抢 max_threads 个核。
+//   4. 采样起点随机化:抵御针对确定性枢轴的构造性最坏输入。
+//   5. 递归较小侧、循环较大侧:栈深稳定在 O(log n)。
+//   6. 索引为 ptrdiff_t:支持超过 2^31 的大型数组。
 //
 // 约束:T 须为算术类型(支持 <、+、/);非稳定排序;重复元素越多越快。
 // 编译(使用并行版):g++ -O2 -std=c++17 -pthread
@@ -106,8 +111,8 @@ inline void small_sort(T* a, index_t n) {
     }
 }
 
-// ---------- 三路划分(保留原设计) ----------
-// 返回:{小于区右端点 lt, 大于区左端点 gt},[lt, gt) == pivot
+// ---------- 三路划分(荷兰国旗) ----------
+// 返回:{小于区右端点 lt, 大于区右端点 gt},[lt, gt) == pivot
 template<typename T>
 inline std::pair<index_t, index_t>
 three_way_partition(T* a, index_t lo, index_t hi, T pivot) {
@@ -129,6 +134,23 @@ three_way_partition(T* a, index_t lo, index_t hi, T pivot) {
     return {lt, gt};
 }
 
+// ---------- 两路划分(Hoare) ----------
+// 低重复度数据用:每个元素平均 1 次比较,而三路划分最坏要比较 2 次。
+// 返回 j,保证 [lo, j] 内均 <= pivot,[j+1, hi) 内均 >= pivot。
+// 前置条件:pivot 落在 [min(a), max(a)] 内——sample_pivot 采自数据本身,
+// 必然满足;若枢轴是 NaN 则不会走到这里。
+template<typename T>
+inline index_t two_way_partition(T* a, index_t lo, index_t hi, T pivot) {
+    index_t i = lo - 1;
+    index_t j = hi;
+    for (;;) {
+        do { ++i; } while (less(a[i], pivot));
+        do { --j; } while (less(pivot, a[j]));
+        if (i >= j) return j;
+        std::swap(a[i], a[j]);
+    }
+}
+
 // ---------- 轻量随机源:采样起点随机化 ----------
 inline std::size_t next_random() {
     thread_local std::size_t s = 0;
@@ -145,11 +167,16 @@ inline std::size_t next_random() {
 
 // ---------- 枢轴:16 个等距采样的截尾均值 ----------
 // 先排序采样,去掉两端各 4 个极端值,对中间 8 个求均值。
-// 保留"均值"思想(对称分布下与均值几乎一致),同时:
-//   * 枢轴 ∈ [s[4], s[11]],任何分布下单层至少切掉约 5/16 的规模;
-//   * 两端离群点被丢弃,重尾分布不受影响。
+// 同时统计中间段里"相邻相等"的对数,作为重复度的廉价探针:
+// 低重复度的数据不需要三路划分,走两路更快。
 template<typename T>
-inline T sample_pivot(T* a, index_t lo, index_t hi) {
+struct pivot_result {
+    T    pivot;
+    bool dup_heavy;   // 采样里等值对够多 => 大概率是低基数数据,值得三路划分
+};
+
+template<typename T>
+inline pivot_result<T> sample_pivot(T* a, index_t lo, index_t hi) {
     index_t n     = hi - lo;
     index_t step  = n / kSampleCount;
     index_t phase = step > 1
@@ -161,7 +188,12 @@ inline T sample_pivot(T* a, index_t lo, index_t hi) {
         s[i] = a[lo + phase + i * step];
     small_sort(s, kSampleCount);
 
-    // NaN 不参与求均值,否则整个枢轴会变成 NaN;若中间 8 个全是 NaN,
+    // 等值对探针:中间 8 个里相邻相等的对数
+    int dup = 0;
+    for (index_t i = kTrimLo + 1; i < kTrimHi; ++i)
+        if (!less(s[i - 1], s[i]) && !less(s[i], s[i - 1])) ++dup;
+
+    // NaN 不参与求均值,否则整段枢轴会变成 NaN;若中间 8 个全是 NaN,
     // 直接返回 NaN,由 less<T> 的全序保证 NaN 仍被统一沉到末尾。
     long double sum = 0;
     index_t cnt = 0;
@@ -170,8 +202,8 @@ inline T sample_pivot(T* a, index_t lo, index_t hi) {
         sum += static_cast<long double>(s[i]);
         ++cnt;
     }
-    if (cnt == 0) return s[kTrimLo];
-    return static_cast<T>(sum / static_cast<long double>(cnt));
+    if (cnt == 0) return {s[kTrimLo], false};
+    return {static_cast<T>(sum / static_cast<long double>(cnt)), dup >= 2};
 }
 
 // ---------- 递归主体:小侧递归、大侧循环 ----------
@@ -193,15 +225,34 @@ void sort_impl(T* a, index_t lo, index_t hi, int depth) {
             std::sort_heap(a + lo, a + hi);
             return;
         }
-        T pivot = sample_pivot(a, lo, hi);
-        auto [lt, gt] = three_way_partition(a, lo, hi, pivot);
 
-        if (lt - lo < hi - gt) {
-            sort_impl(a, lo, lt, depth);   // 小侧递归
-            lo = gt;                       // 大侧循环
+        pivot_result<T> pr = sample_pivot(a, lo, hi);
+
+        if (pr.dup_heavy || is_nan(pr.pivot)) {
+            auto [lt, gt] = three_way_partition(a, lo, hi, pr.pivot);
+            if (lt - lo < hi - gt) {
+                sort_impl(a, lo, lt, depth);   // 小侧递归
+                lo = gt;                       // 大侧循环
+            } else {
+                sort_impl(a, gt, hi, depth);
+                hi = lt;
+            }
+            continue;
+        }
+
+        index_t mid  = two_way_partition(a, lo, hi, pr.pivot);
+        index_t lhi  = mid + 1;                // 左区间 [lo, lhi)
+        if (lhi >= hi) {
+            // 右侧为空:说明区间最大值恰在末尾且已就位,排除它继续
+            hi -= 1;
+            continue;
+        }
+        if (mid - lo < hi - lhi) {
+            sort_impl(a, lo, lhi, depth);
+            lo = lhi;
         } else {
-            sort_impl(a, gt, hi, depth);
-            hi = lt;
+            sort_impl(a, lhi, hi, depth);
+            hi = lhi;
         }
     }
     small_sort(a + lo, hi - lo);
@@ -228,8 +279,9 @@ namespace detail {
 
 inline constexpr index_t kParallelThreshold = 1 << 15;  // 小于 32K 直接串行
 
-// 第一阶段:不派生线程,串行做顶层三路划分,把区间切成约 parts 块,
-// 块数按各子区间规模按比例分配 => 负载均衡
+// 第一阶段:不派生线程,串行做顶层划分,把区间切成约 parts 块,
+// 块数按各子区间规模按比例分配 => 负载均衡。
+// 与 sort_impl 一样自适应:低重复度用两路划分,高重复度用三路划分。
 template<typename T>
 void collect_ranges(T* a, index_t lo, index_t hi, int depth, int parts,
                     std::vector<std::pair<index_t, index_t>>& out) {
@@ -237,24 +289,43 @@ void collect_ranges(T* a, index_t lo, index_t hi, int depth, int parts,
         out.emplace_back(lo, hi);
         return;
     }
-    T pivot = sample_pivot(a, lo, hi);
-    auto [lt, gt] = three_way_partition(a, lo, hi, pivot);
 
-    index_t lsize = lt - lo, rsize = hi - gt, total = lsize + rsize;
-    if (total == 0) { out.emplace_back(lt, gt); return; }  // 全相等
+    pivot_result<T> pr = sample_pivot(a, lo, hi);
 
+    if (pr.dup_heavy || is_nan(pr.pivot)) {
+        auto [lt, gt] = three_way_partition(a, lo, hi, pr.pivot);
+        index_t lsize = lt - lo, rsize = hi - gt, total = lsize + rsize;
+        if (total == 0) {                       // 全相等,已就位
+            out.emplace_back(lt, gt);
+            return;
+        }
+        int lparts = static_cast<int>(std::max<index_t>(
+            1, std::min<index_t>(parts - 1, (parts * lsize + total - 1) / total)));
+        collect_ranges(a, lo, lt, depth, lparts, out);
+        collect_ranges(a, gt, hi, depth, parts - lparts, out);
+        return;
+    }
+
+    index_t mid = two_way_partition(a, lo, hi, pr.pivot);
+    index_t lhi = mid + 1;
+    if (lhi >= hi) {                            // 末尾元素已就位,整段交给一个任务
+        out.emplace_back(lo, hi - 1);
+        return;
+    }
+
+    index_t lsize = lhi - lo, rsize = hi - lhi, total = lsize + rsize;
     int lparts = static_cast<int>(std::max<index_t>(
         1, std::min<index_t>(parts - 1, (parts * lsize + total - 1) / total)));
-    collect_ranges(a, lo, lt, depth, lparts, out);
-    collect_ranges(a, gt, hi, depth, parts - lparts, out);
+    collect_ranges(a, lo, lhi, depth, lparts, out);
+    collect_ranges(a, lhi, hi, depth, parts - lparts, out);
 }
 
 } // namespace detail
 
 // ---------- 并行对外接口 ----------
-// 模型:顶层串行切成约 2 x max_threads 个均衡块(留出余量做负载均衡),
-// 一次性派生固定数量线程,每线程串行处理自己的块 => 无线程创建风暴,
-// 线程数恒定,适合企业级长时间、大数据量运算。
+// 模型:顶层串行切成约 2 x max_threads 个均衡块,然后由至多 max_threads 个
+// 线程通过原子游标抢块(主线程也参与)。线程数严格等于核数,不会出现
+// 2 倍线程争抢同一批核的过订阅。
 // max_threads = 0 表示自动取 hardware_concurrency。
 template<typename T>
 void parallel_sort(T* a, index_t n, unsigned max_threads = 0) {
@@ -265,28 +336,38 @@ void parallel_sort(T* a, index_t n, unsigned max_threads = 0) {
     unsigned hw = std::thread::hardware_concurrency();
     if (hw <= 1 || n <= detail::kParallelThreshold) { sort(a, n); return; }
     if (max_threads == 0 || max_threads > hw) max_threads = hw;
+    if (max_threads <= 1) { sort(a, n); return; }
 
     std::vector<std::pair<index_t, index_t>> ranges;
     int depth = 2 * static_cast<int>(std::log2(static_cast<double>(n)));
     detail::collect_ranges(a, 0, n, depth, static_cast<int>(max_threads) * 2, ranges);
 
-    std::vector<std::thread> pool;
-    pool.reserve(ranges.size());
-    for (auto [lo, hi] : ranges) {
-        if (hi - lo <= 1) continue;
-        try {
-            pool.emplace_back([a, lo, hi] {
-                int d = 2 * static_cast<int>(std::log2(
-                    static_cast<double>(std::max<index_t>(hi - lo, 2))));
-                sort_impl(a, lo, hi, d);
-            });
-        } catch (...) {
-            // 线程创建失败:本块串行处理
+    std::atomic<index_t> cursor{0};
+    const index_t nranges = static_cast<index_t>(ranges.size());
+
+    auto worker = [&] {
+        for (;;) {
+            index_t k = cursor.fetch_add(1, std::memory_order_relaxed);
+            if (k >= nranges) return;
+            index_t lo = ranges[static_cast<std::size_t>(k)].first;
+            index_t hi = ranges[static_cast<std::size_t>(k)].second;
+            if (hi - lo <= 1) continue;
             int d = 2 * static_cast<int>(std::log2(
                 static_cast<double>(std::max<index_t>(hi - lo, 2))));
             sort_impl(a, lo, hi, d);
         }
+    };
+
+    std::vector<std::thread> pool;
+    pool.reserve(max_threads > 0 ? max_threads - 1 : 0);
+    for (unsigned t = 1; t < max_threads; ++t) {
+        try {
+            pool.emplace_back(worker);
+        } catch (...) {
+            break;   // 线程创建失败:剩下的块由已有线程和主线程抢完
+        }
     }
+    worker();        // 主线程也干活
     for (auto& t : pool) t.join();
 }
 
