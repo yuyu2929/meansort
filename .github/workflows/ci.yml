@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        compiler: [g++, clang++]
+        exclude:
+          - os: macos-latest
+            compiler: g++
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: 编译
+        run: |
+          ${{ matrix.compiler }} -O2 -std=c++17 -pthread \
+            tests/test_meansort.cpp -o test_meansort
+          ${{ matrix.compiler }} -O3 -std=c++17 -pthread \
+            benchmark/bench.cpp -o bench
+      - name: 测试
+        run: ./test_meansort
+      - name: 基准冒烟(小规模)
+        run: ./bench 100000
