@@ -124,6 +124,9 @@ target_link_libraries(your_target PRIVATE meansort::meansort)
 6. **NaN 全序**：所有比较走统一的 `less<T>()`（有限值 < NaN，NaN 彼此相等），
    保证三路划分的不变式在浮点特殊值下依然成立。
 
+每个不显然的选择（为什么是均值枢轴、阈值 24 怎么来的、线程数为什么不敢超核数、
+哪些方案被否掉了、踩过哪些坑），都记在 **[docs/design.md](docs/design.md)**。
+
 ## 基准复现
 
 ```bash

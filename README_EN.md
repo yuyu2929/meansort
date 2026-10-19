@@ -78,6 +78,13 @@ ctest --test-dir build -C Release --output-on-failure
 ./build/meansort_bench 2000000
 ```
 
+## Docs
+
+- [docs/design.md](docs/design.md) — why the pivot is a trimmed mean, where the
+  thresholds came from, which alternatives were rejected, and which claims were
+  walked back after measurement.
+- [docs/benchmark.md](docs/benchmark.md) — method, old-vs-new A/B, known gaps.
+
 ## License
 
 Dual-licensed: **AGPL-3.0** for open-source use, or a **commercial license** for
