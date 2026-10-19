@@ -16,6 +16,8 @@ target_link_libraries(meansort INTERFACE Threads::Threads)
 
 option(MEANSORT_BUILD_TESTS "构建测试" OFF)
 option(MEANSORT_BUILD_BENCH "构建基准测试" OFF)
+option(MEANSORT_BUILD_BENCH_LEGACY
+       "构建旧算法基准(强制三路划分,仅用于 A/B 对比)" OFF)
 
 if(MEANSORT_BUILD_TESTS)
     enable_testing()
@@ -35,6 +37,17 @@ if(MEANSORT_BUILD_BENCH)
         target_compile_options(meansort_bench PRIVATE /O2 /utf-8)
     else()
         target_compile_options(meansort_bench PRIVATE -O3)
+    endif()
+endif()
+
+if(MEANSORT_BUILD_BENCH_LEGACY)
+    add_executable(meansort_bench_legacy benchmark/bench.cpp)
+    target_link_libraries(meansort_bench_legacy PRIVATE meansort::meansort)
+    target_compile_definitions(meansort_bench_legacy PRIVATE MEANSORT_ALWAYS_THREE_WAY)
+    if(MSVC)
+        target_compile_options(meansort_bench_legacy PRIVATE /O2 /utf-8)
+    else()
+        target_compile_options(meansort_bench_legacy PRIVATE -O3)
     endif()
 endif()
 

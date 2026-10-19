@@ -203,7 +203,13 @@ inline pivot_result<T> sample_pivot(T* a, index_t lo, index_t hi) {
         ++cnt;
     }
     if (cnt == 0) return {s[kTrimLo], false};
+#ifdef MEANSORT_ALWAYS_THREE_WAY
+    // 仅供回归对比:强制回到 2.0 的"永远三路划分"行为,用于在同一次运行里
+    // 对比新旧算法(docs/benchmark.md 的数据就是这么来的)。不要在生产里定义。
+    return {static_cast<T>(sum / static_cast<long double>(cnt)), true};
+#else
     return {static_cast<T>(sum / static_cast<long double>(cnt)), dup >= 2};
+#endif
 }
 
 // ---------- 递归主体:小侧递归、大侧循环 ----------

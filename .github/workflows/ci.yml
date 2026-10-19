@@ -25,6 +25,7 @@ jobs:
           cmake -B build
           -DMEANSORT_BUILD_TESTS=ON
           -DMEANSORT_BUILD_BENCH=ON
+          -DMEANSORT_BUILD_BENCH_LEGACY=ON
           -DCMAKE_BUILD_TYPE=Release
         env:
           CC: ${{ matrix.cc }}
@@ -45,8 +46,12 @@ jobs:
 
       - name: 基准(2M,Unix)
         if: runner.os != 'Windows'
-        run: ./build/meansort_bench 2000000
+        run: |
+          ./build/meansort_bench 2000000
+          ./build/meansort_bench_legacy 2000000
 
       - name: 基准(2M,Windows)
         if: runner.os == 'Windows'
-        run: ./build/Release/meansort_bench.exe 2000000
+        run: |
+          ./build/Release/meansort_bench.exe 2000000
+          ./build/Release/meansort_bench_legacy.exe 2000000
