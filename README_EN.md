@@ -85,7 +85,15 @@ ctest --test-dir build -C Release --output-on-failure
   walked back after measurement.
 - [docs/benchmark.md](docs/benchmark.md) — method, old-vs-new A/B, known gaps.
 
-## License
+## License: free for individuals, paid for commercial use
 
-Dual-licensed: **AGPL-3.0** for open-source use, or a **commercial license** for
-closed-source products. Open an [issue](https://github.com/yuyu2929/meansort/issues) to get in touch.
+| Who you are | Licence | Cost |
+|---|---|---|
+| **Individual** (study, research, hobby projects) | [PolyForm Noncommercial 1.0.0](LICENSE-POLYFORM.md) | **free forever** |
+| Non-profit orgs (universities, public research, government, charity) | same | **free** |
+| **Companies / sole traders / any for-profit entity** | [Commercial licence](COMMERCIAL-LICENSE.md) | **paid** |
+
+> ⚠️ This is **not an OSI open-source project**; the accurate term is
+> **source-available**. v1.0 shipped under AGPL-3.0, which permits free commercial
+> use and conflicts with the commercial model, so v1.1 moved to dual licensing.
+> See [LICENSE.md](LICENSE.md).

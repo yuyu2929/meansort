@@ -1,7 +1,7 @@
 # MeanSort
 
 [![CI](https://github.com/yuyu2929/meansort/actions/workflows/ci.yml/badge.svg)](https://github.com/yuyu2929/meansort/actions/workflows/ci.yml)
-[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-Dual_(NC_%2F_Commercial)-blue)](LICENSE.md)
 
 **统计枢轴自适应排序库** —— 面向大数据量的 C++17 header-only 数值排序库。
 采样截尾均值选枢轴，按重复度自动切换两路/三路划分，内省兜底保证最坏情况，内置多线程并行。
@@ -145,13 +145,17 @@ CI 里每次 push 都会跑一遍，日志可查。
 - [ ] NUMA 感知的块分配
 - [ ] 与 GNU parallel mode / TBB 的横向基准
 
-## 许可证
+## 许可证：个人免费，商业付费
 
-MeanSort 采用**双许可证**：
+| 你是谁 | 许可 | 费用 |
+|---|---|---|
+| **个人**：学习、研究、个人项目 | [PolyForm Noncommercial 1.0.0](LICENSE-POLYFORM.md) | **永久免费** |
+| 非营利组织：高校院系、公共研究机构、政府、慈善 | 同上 | **免费** |
+| **公司 / 个体经营者 / 任何营利实体** | [商业许可](COMMERCIAL-LICENSE.md) | **需购买授权** |
 
-- **AGPL-3.0**：开源项目、内部工具、愿意开源衍生代码的产品免费使用；
-- **商业许可证**：闭源商用、SaaS 嵌入、无法接受 AGPL 传染条款的企业，请通过
-  [GitHub Issues](https://github.com/yuyu2929/meansort/issues) 联系获取授权。
+> ⚠️ 本项目**不是 OSI 开源项目**，准确说法是 **source-available**（源码可见）。
+> v1.0 曾以 AGPL-3.0 发布，因 AGPL 允许免费商用、与商业目标冲突，自 v1.1 起改为双许可。
+> 详见 [LICENSE.md](LICENSE.md)。
 
 ## 致谢
 

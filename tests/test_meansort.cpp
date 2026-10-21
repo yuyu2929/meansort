@@ -9,6 +9,7 @@
 #include <vector>
 
 static int failures = 0;
+static int checks = 0;      // 通过的检查项计数（CI 会把它写进 job summary）
 
 template<typename SortFn>
 void check(const char* name, std::vector<long long> v, SortFn sort_fn) {
@@ -19,6 +20,7 @@ void check(const char* name, std::vector<long long> v, SortFn sort_fn) {
         std::cerr << "[FAIL] " << name << "\n";
         ++failures;
     } else {
+        ++checks;
         std::cout << "[ OK ] " << name << "\n";
     }
 }
@@ -86,6 +88,7 @@ void partition_fuzz() {
         if (save != v) ok = false;
         if (!ok) { std::cerr << "[FAIL] partition fuzz #" << t << "\n"; ++failures; return; }
     }
+    ++checks;
     std::cout << "[ OK ] partition fuzz (200000 轮)\n";
 }
 
@@ -99,7 +102,7 @@ void test_double() {
     std::sort(expect.begin(), expect.end());
     meansort::parallel_sort(v);
     if (v != expect) { std::cerr << "[FAIL] double\n"; ++failures; }
-    else std::cout << "[ OK ] double 重尾分布\n";
+    else { ++checks; std::cout << "[ OK ] double 重尾分布\n"; }
 }
 
 // NaN 全序验证:有限值必须升序且全部排在 NaN 之前,NaN 数量不变。
@@ -133,7 +136,7 @@ void test_nan() {
         }
         if (nan_out != nan_in) ok = false;
         if (!ok) { std::cerr << "[FAIL] NaN " << tag << "\n"; ++failures; }
-        else std::cout << "[ OK ] NaN " << tag << "\n";
+        else { ++checks; std::cout << "[ OK ] NaN " << tag << "\n"; }
     };
     verify(a, "串行");
     verify(b, "并行");
@@ -146,6 +149,7 @@ int main() {
     test_double();
     test_nan();
     if (failures) { std::cerr << failures << " 项失败\n"; return 1; }
-    std::cout << "\n全部通过\n";
+    std::cout << "\n全部通过: " << checks << " 项检查\n";
+    std::cout << "CHECKS=" << checks << "\n";   // 给 CI 抓取的稳定标记（ASCII）
     return 0;
 }

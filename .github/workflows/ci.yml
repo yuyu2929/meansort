@@ -37,6 +37,19 @@ jobs:
       - name: 测试
         run: ctest --test-dir build -C Release --output-on-failure
 
+      - name: 断言计数（写进 job summary）
+        shell: bash
+        run: |
+          # 测试二进制在末尾打印 CHECKS=N（ASCII 标记，便于抓取）
+          out=$(ctest --test-dir build -C Release -V 2>&1 || true)
+          echo "$out" | grep -E '^[0-9]+: (\[ OK \]|CHECKS=|全部通过)' | tail -n 40 || true
+          n=$(echo "$out" | grep -oE 'CHECKS=[0-9]+' | tail -n 1 | cut -d= -f2)
+          if [ -z "$n" ]; then n="?"; fi
+          echo "### 测试结果" >> "$GITHUB_STEP_SUMMARY"
+          echo "- 通过检查项：**$n**" >> "$GITHUB_STEP_SUMMARY"
+          echo "- 平台：${{ matrix.os }} / ${{ matrix.compiler }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "CHECKS=$n"
+
       - name: 安装冒烟(确认装得出可被 find_package 使用的配置)
         shell: bash
         run: |
